@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Smart Lost Item Detection</title>
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+  <!-- COCO-SSD Model -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+</head>
+<body>
+
+  <div class="app">
+
+    <header class="hero">
+      <div>
+        <p class="badge">AI Security System</p>
+        <h1>Smart Lost Item Detection</h1>
+        <p class="subtitle">
+          Sistem pendeteksi kehilangan barang berbasis kamera dengan notifikasi otomatis melalui email.
+        </p>
+      </div>
+    </header>
+
+    <main class="layout">
+
+      <!-- FORM DATA BARANG -->
+      <section class="card">
+        <h2>Data Pemilik Barang</h2>
+
+        <div class="form-group">
+          <label>Nama Pemilik</label>
+          <input 
+            type="text" 
+            id="ownerName" 
+            placeholder="Contoh: Febrio" 
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Email Pemilik</label>
+          <input 
+            type="email" 
+            id="ownerEmail" 
+            placeholder="Contoh: pemilik@gmail.com" 
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Barang yang Dipantau</label>
+          <select id="targetItem">
+            <option value="laptop">Laptop</option>
+            <option value="cell phone">Handphone</option>
+            <option value="backpack">Tas / Backpack</option>
+            <option value="handbag">Tas Tangan</option>
+            <option value="bottle">Botol</option>
+            <option value="book">Buku</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Lokasi Pemantauan</label>
+          <input 
+            type="text" 
+            id="location" 
+            placeholder="Contoh: Meja 1 Cafe" 
+          />
+        </div>
+
+        <button id="startBtn" class="btn primary">Mulai Pantau</button>
+        <button id="stopBtn" class="btn secondary">Berhenti</button>
+      </section>
+
+      <!-- KAMERA -->
+      <section class="card camera-card">
+        <div class="camera-header">
+          <h2>Kamera Pemantauan</h2>
+          <span id="modelStatus" class="status">Model belum dimuat</span>
+        </div>
+
+        <div class="camera-box">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="canvas"></canvas>
+        </div>
+      </section>
+
+      <!-- STATUS -->
+      <section class="card status-card">
+        <h2>Status Barang</h2>
+
+        <div id="alertBox" class="alert safe">
+          <h3 id="statusTitle">Belum Memantau</h3>
+          <p id="statusText">Isi data pemilik barang lalu klik Mulai Pantau.</p>
+        </div>
+
+        <div class="info-grid">
+          <div>
+            <span>Barang Target</span>
+            <strong id="itemInfo">-</strong>
+          </div>
+
+          <div>
+            <span>Status Deteksi</span>
+            <strong id="detectInfo">-</strong>
+          </div>
+
+          <div>
+            <span>Durasi Tidak Terlihat</span>
+            <strong id="missingTime">0 detik</strong>
+          </div>
+
+          <div>
+            <span>Notifikasi</span>
+            <strong id="notifStatus">Belum dikirim</strong>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIWAYAT -->
+      <section class="card history-card">
+        <h2>Riwayat Kejadian</h2>
+        <ul id="historyList">
+          <li>Belum ada riwayat kehilangan.</li>
+        </ul>
+      </section>
+
+    </main>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
