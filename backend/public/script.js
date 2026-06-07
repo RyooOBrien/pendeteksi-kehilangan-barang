@@ -6,8 +6,14 @@ let animationId = null;
 let missingStartTime = null;
 let alertSent = false;
 
+// State untuk kunci barang berdasarkan posisi awal
+let itemLocked = false;
+let firstDetectedAt = null;
+let lockedBox = null;
+
 const LOST_DELAY_SECONDS = 8;
 const CONFIDENCE_LIMIT = 0.45;
+const LOCK_CONFIRM_SECONDS = 2;
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -33,12 +39,17 @@ const notifStatus = document.getElementById("notifStatus");
 const historyList = document.getElementById("historyList");
 
 const itemLabels = {
-  "laptop": "Laptop",
   "cell phone": "Handphone",
-  "backpack": "Tas / Backpack",
-  "handbag": "Tas Tangan",
-  "bottle": "Botol",
+  "laptop": "Laptop",
+  "bag": "Tas",
   "book": "Buku"
+};
+
+const itemClasses = {
+  "cell phone": ["cell phone"],
+  "laptop": ["laptop"],
+  "bag": ["backpack", "handbag"],
+  "book": ["book"]
 };
 
 async function loadModel() {
@@ -118,31 +129,88 @@ function stopCamera() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function drawPredictions(predictions, targetItem) {
+function getTargetPredictions(predictions, targetItem) {
+  const allowedClasses = itemClasses[targetItem] || [targetItem];
+
+  return predictions.filter(prediction => {
+    return allowedClasses.includes(prediction.class) && prediction.score >= CONFIDENCE_LIMIT;
+  });
+}
+
+function getBestPrediction(predictions) {
+  if (predictions.length === 0) return null;
+
+  return predictions.reduce((best, current) => {
+    return current.score > best.score ? current : best;
+  });
+}
+
+function boxMatchesLockedArea(currentBox, referenceBox) {
+  if (!referenceBox) return false;
+
+  const [rx, ry, rw, rh] = referenceBox;
+  const [cx, cy, cw, ch] = currentBox;
+
+  const currentCenterX = cx + cw / 2;
+  const currentCenterY = cy + ch / 2;
+
+  const expandX = rw * 0.8;
+  const expandY = rh * 0.8;
+
+  const insideX =
+    currentCenterX >= rx - expandX &&
+    currentCenterX <= rx + rw + expandX;
+
+  const insideY =
+    currentCenterY >= ry - expandY &&
+    currentCenterY <= ry + rh + expandY;
+
+  const referenceArea = rw * rh;
+  const currentArea = cw * ch;
+  const areaRatio = currentArea / referenceArea;
+
+  const sizeStillSimilar = areaRatio >= 0.25 && areaRatio <= 4;
+
+  return insideX && insideY && sizeStillSimilar;
+}
+
+function drawDetections(targetPredictions, matchedPredictions, targetItem) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const targetPredictions = predictions.filter(prediction => {
-    return prediction.class === targetItem && prediction.score >= CONFIDENCE_LIMIT;
-  });
+  // Gambar area barang yang sudah dikunci
+  if (lockedBox) {
+    const [x, y, width, height] = lockedBox;
+
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = "#facc15";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, width, height);
+
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#facc15";
+    ctx.font = "16px Arial";
+    ctx.fillText("Area barang tersimpan", x, y > 20 ? y - 8 : y + 20);
+  }
 
   targetPredictions.forEach(prediction => {
     const [x, y, width, height] = prediction.bbox;
 
-    ctx.strokeStyle = "#22c55e";
+    const isMatched = matchedPredictions.includes(prediction);
+    const isWrongArea = itemLocked && !isMatched;
+
+    ctx.strokeStyle = isWrongArea ? "#f97316" : "#22c55e";
+    ctx.fillStyle = isWrongArea ? "#f97316" : "#22c55e";
     ctx.lineWidth = 3;
     ctx.strokeRect(x, y, width, height);
 
-    ctx.fillStyle = "#22c55e";
     ctx.font = "16px Arial";
 
-    ctx.fillText(
-      `${itemLabels[targetItem]} ${(prediction.score * 100).toFixed(0)}%`,
-      x,
-      y > 20 ? y - 8 : y + 20
-    );
-  });
+    const label = isWrongArea
+      ? `${itemLabels[targetItem]} di luar area`
+      : `${itemLabels[targetItem]} ${(prediction.score * 100).toFixed(0)}%`;
 
-  return targetPredictions.length;
+    ctx.fillText(label, x, y > 20 ? y - 8 : y + 20);
+  });
 }
 
 async function sendLostItemNotification() {
@@ -207,23 +275,93 @@ async function detectLoop() {
   const targetItem = targetItemInput.value;
   const predictions = await model.detect(video);
 
-  const targetCount = drawPredictions(predictions, targetItem);
+  const targetPredictions = getTargetPredictions(predictions, targetItem);
+  const bestTarget = getBestPrediction(targetPredictions);
+  const targetDetected = targetPredictions.length > 0;
 
-  const targetDetected = targetCount > 0;
-
-  if (targetDetected) {
+  // TAHAP 1: Cari dan simpan posisi awal barang
+  if (!itemLocked) {
     missingStartTime = null;
-    alertSent = false;
-
-    detectInfo.textContent = `Terdeteksi (${targetCount})`;
-    missingTime.textContent = "0 detik";
+    missingTime.textContent = "-";
     notifStatus.textContent = "Belum dikirim";
+
+    drawDetections(targetPredictions, targetPredictions, targetItem);
+
+    if (targetDetected && bestTarget) {
+      if (!firstDetectedAt) {
+        firstDetectedAt = Date.now();
+      }
+
+      const lockSeconds = Math.floor((Date.now() - firstDetectedAt) / 1000);
+
+      detectInfo.textContent = `Target terlihat (${targetPredictions.length})`;
+
+      setStatus(
+        "warning",
+        "Menyimpan Barang Target",
+        `${itemLabels[targetItem]} terdeteksi. Sistem sedang menyimpan posisi awal selama ${lockSeconds}/${LOCK_CONFIRM_SECONDS} detik.`
+      );
+
+      if (lockSeconds >= LOCK_CONFIRM_SECONDS) {
+        itemLocked = true;
+        lockedBox = bestTarget.bbox;
+        firstDetectedAt = null;
+
+        detectInfo.textContent = "Barang tersimpan";
+        missingTime.textContent = "0 detik";
+
+        setStatus(
+          "safe",
+          "Barang Tersimpan",
+          `${itemLabels[targetItem]} berhasil disimpan berdasarkan posisi awal. Pemantauan kehilangan sekarang aktif.`
+        );
+
+        addHistory(
+          `${itemLabels[targetItem]} berhasil disimpan berdasarkan posisi awal. Sistem mulai memantau kehilangan.`
+        );
+      }
+
+    } else {
+      firstDetectedAt = null;
+      detectInfo.textContent = "Mencari target";
+
+      setStatus(
+        "warning",
+        "Mencari Barang Target",
+        `Arahkan kamera ke ${itemLabels[targetItem]}. Sistem belum menghitung kehilangan sebelum barang target tersimpan.`
+      );
+    }
+
+    animationId = requestAnimationFrame(detectLoop);
+    return;
+  }
+
+  // TAHAP 2: Setelah barang tersimpan, hanya objek di area awal yang dianggap aman
+  const matchedPredictions = targetPredictions.filter(prediction => {
+    return boxMatchesLockedArea(prediction.bbox, lockedBox);
+  });
+
+  drawDetections(targetPredictions, matchedPredictions, targetItem);
+
+  const targetDetectedInLockedArea = matchedPredictions.length > 0;
+  const targetDetectedButWrongArea = targetPredictions.length > 0 && matchedPredictions.length === 0;
+
+  if (targetDetectedInLockedArea) {
+    missingStartTime = null;
+
+    detectInfo.textContent = `Terdeteksi di area awal (${matchedPredictions.length})`;
+    missingTime.textContent = "0 detik";
+
+    if (!alertSent) {
+      notifStatus.textContent = "Belum dikirim";
+    }
 
     setStatus(
       "safe",
       "Barang Aman",
-      `${itemLabels[targetItem]} masih terdeteksi di area pemantauan.`
+      `${itemLabels[targetItem]} masih terdeteksi di posisi awal pemantauan.`
     );
+
   } else {
     if (!missingStartTime) {
       missingStartTime = Date.now();
@@ -231,19 +369,34 @@ async function detectLoop() {
 
     const elapsedSeconds = Math.floor((Date.now() - missingStartTime) / 1000);
     missingTime.textContent = `${elapsedSeconds} detik`;
-    detectInfo.textContent = "Tidak terlihat";
 
-    if (elapsedSeconds < LOST_DELAY_SECONDS) {
-      setStatus(
-        "warning",
-        "Barang Tidak Terlihat",
-        `${itemLabels[targetItem]} belum terlihat selama ${elapsedSeconds} detik. Sistem sedang memastikan kondisi barang.`
-      );
+    if (targetDetectedButWrongArea) {
+      detectInfo.textContent = "Terdeteksi di luar area awal";
+
+      if (elapsedSeconds < LOST_DELAY_SECONDS) {
+        setStatus(
+          "warning",
+          "Barang Tidak Sesuai Posisi Awal",
+          `${itemLabels[targetItem]} terdeteksi, tetapi bukan di area awal yang tersimpan. Sistem tetap menghitung kemungkinan kehilangan.`
+        );
+      }
     } else {
+      detectInfo.textContent = "Tidak terlihat";
+
+      if (elapsedSeconds < LOST_DELAY_SECONDS) {
+        setStatus(
+          "warning",
+          "Barang Tidak Terlihat",
+          `${itemLabels[targetItem]} belum terlihat selama ${elapsedSeconds} detik dari area awal. Sistem sedang memastikan kondisi barang.`
+        );
+      }
+    }
+
+    if (elapsedSeconds >= LOST_DELAY_SECONDS) {
       setStatus(
         "danger",
         "Barang Terdeteksi Hilang",
-        `${itemLabels[targetItem]} tidak terlihat lebih dari ${LOST_DELAY_SECONDS} detik. Sistem mengirim peringatan email ke pemilik barang.`
+        `${itemLabels[targetItem]} tidak terlihat di area awal lebih dari ${LOST_DELAY_SECONDS} detik. Sistem mengirim peringatan email ke pemilik barang.`
       );
 
       if (!alertSent) {
@@ -282,21 +435,25 @@ startBtn.addEventListener("click", async () => {
     missingStartTime = null;
     alertSent = false;
 
+    itemLocked = false;
+    firstDetectedAt = null;
+    lockedBox = null;
+
     itemInfo.textContent = itemLabels[targetItem];
-    detectInfo.textContent = "Memulai...";
-    missingTime.textContent = "0 detik";
+    detectInfo.textContent = "Mencari target...";
+    missingTime.textContent = "-";
     notifStatus.textContent = "Belum dikirim";
 
     setStatus(
       "warning",
-      "Memulai Pemantauan",
-      "Kamera sedang dinyalakan dan sistem mulai membaca objek."
+      "Mencari Barang Target",
+      `Arahkan kamera ke ${itemLabels[targetItem]}. Sistem akan menyimpan posisi awal barang terlebih dahulu.`
     );
 
     await startCamera();
 
     addHistory(
-      `Pemantauan dimulai untuk ${itemLabels[targetItem]} milik ${ownerName}. Notifikasi akan dikirim ke ${ownerEmail}.`
+      `Pemantauan dimulai untuk ${itemLabels[targetItem]} milik ${ownerName}. Sistem akan menyimpan posisi awal barang.`
     );
 
     detectLoop();
@@ -315,6 +472,11 @@ startBtn.addEventListener("click", async () => {
 stopBtn.addEventListener("click", () => {
   isMonitoring = false;
   stopCamera();
+
+  itemLocked = false;
+  firstDetectedAt = null;
+  lockedBox = null;
+  missingStartTime = null;
 
   setStatus(
     "safe",
