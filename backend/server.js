@@ -5,6 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const nodemailer = require("nodemailer");
 const dns = require("dns");
+const dnsPromises = require("dns").promises;
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -51,15 +52,22 @@ async function sendEmailNotification(report) {
     console.log("EMAIL_USER terbaca:", emailUser ? "YA" : "TIDAK");
     console.log("EMAIL_PASS terbaca:", emailPass ? "YA" : "TIDAK");
 
+    const gmailIPv4List = await dnsPromises.resolve4("smtp.gmail.com");
+    const gmailIPv4 = gmailIPv4List[0];
+
+    console.log("SMTP Gmail IPv4 yang dipakai:", gmailIPv4);
+
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
+      host: gmailIPv4,
       port: 587,
       secure: false,
       requireTLS: true,
-      family: 4,
       auth: {
         user: emailUser,
         pass: emailPass
+      },
+      tls: {
+        servername: "smtp.gmail.com"
       },
       connectionTimeout: 15000,
       greetingTimeout: 15000,
