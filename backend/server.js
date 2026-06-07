@@ -3,11 +3,6 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cors = require("cors");
-const nodemailer = require("nodemailer");
-const dns = require("dns");
-const dnsPromises = require("dns").promises;
-
-dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
 
@@ -26,17 +21,16 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Fungsi kirim email
+// Fungsi kirim email menggunakan Resend API
 async function sendEmailNotification(report) {
   try {
-    const emailUser = process.env.EMAIL_USER?.trim();
-    const emailPass = process.env.EMAIL_PASS?.replace(/\s+/g, "").trim();
+    const resendApiKey = process.env.RESEND_API_KEY?.trim();
 
-    if (!emailUser || !emailPass) {
+    if (!resendApiKey) {
       return {
         success: false,
         status: "EMAIL_GAGAL",
-        message: "EMAIL_USER atau EMAIL_PASS belum terbaca dari file .env / Railway Variables."
+        message: "RESEND_API_KEY belum diatur di .env / Railway Variables."
       };
     }
 
@@ -48,100 +42,88 @@ async function sendEmailNotification(report) {
       };
     }
 
-    console.log("Cek konfigurasi email:");
-    console.log("EMAIL_USER terbaca:", emailUser ? "YA" : "TIDAK");
-    console.log("EMAIL_PASS terbaca:", emailPass ? "YA" : "TIDAK");
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2 style="color: #dc2626;">🚨 Peringatan Barang Hilang</h2>
 
-    const gmailIPv4List = await dnsPromises.resolve4("smtp.gmail.com");
-    const gmailIPv4 = gmailIPv4List[0];
+        <p>Halo <b>${report.ownerName}</b>,</p>
 
-    console.log("SMTP Gmail IPv4 yang dipakai:", gmailIPv4);
+        <p>
+          Sistem mendeteksi bahwa barang kamu kemungkinan hilang 
+          atau tidak lagi terdeteksi oleh kamera.
+        </p>
 
-    const transporter = nodemailer.createTransport({
-      host: gmailIPv4,
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      auth: {
-        user: emailUser,
-        pass: emailPass
+        <table style="border-collapse: collapse; margin-top: 12px;">
+          <tr>
+            <td style="padding: 6px 12px; font-weight: bold;">Barang</td>
+            <td style="padding: 6px 12px;">${report.itemName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 12px; font-weight: bold;">Lokasi</td>
+            <td style="padding: 6px 12px;">${report.location}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 12px; font-weight: bold;">Waktu</td>
+            <td style="padding: 6px 12px;">${report.time}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 12px; font-weight: bold;">Status</td>
+            <td style="padding: 6px 12px; color: #dc2626; font-weight: bold;">
+              Barang tidak terdeteksi
+            </td>
+          </tr>
+        </table>
+
+        <p style="margin-top: 16px;">
+          Segera periksa lokasi terakhir barang tersebut.
+        </p>
+
+        <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">
+          Email ini dikirim otomatis oleh sistem Smart Lost Item Detection.
+        </p>
+      </div>
+    `;
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json"
       },
-      tls: {
-        servername: "smtp.gmail.com"
-      },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 15000
+      body: JSON.stringify({
+        from: "Smart Lost Item Detection <onboarding@resend.dev>",
+        to: [report.ownerEmail],
+        subject: `Peringatan Barang Hilang - ${report.itemName}`,
+        html: emailHtml
+      })
     });
 
-    const mailOptions = {
-      from: `"Smart Lost Item Detection" <${emailUser}>`,
-      to: report.ownerEmail,
-      subject: `Peringatan Barang Hilang - ${report.itemName}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-          <h2 style="color: #dc2626;">🚨 Peringatan Barang Hilang</h2>
+    const result = await response.json();
 
-          <p>Halo <b>${report.ownerName}</b>,</p>
+    if (!response.ok) {
+      console.error("Resend Error:", result);
 
-          <p>
-            Sistem mendeteksi bahwa barang kamu kemungkinan hilang 
-            atau tidak lagi terdeteksi oleh kamera.
-          </p>
-
-          <table style="border-collapse: collapse; margin-top: 12px;">
-            <tr>
-              <td style="padding: 6px 12px; font-weight: bold;">Barang</td>
-              <td style="padding: 6px 12px;">${report.itemName}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 12px; font-weight: bold;">Lokasi</td>
-              <td style="padding: 6px 12px;">${report.location}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 12px; font-weight: bold;">Waktu</td>
-              <td style="padding: 6px 12px;">${report.time}</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 12px; font-weight: bold;">Status</td>
-              <td style="padding: 6px 12px; color: #dc2626; font-weight: bold;">
-                Barang tidak terdeteksi
-              </td>
-            </tr>
-          </table>
-
-          <p style="margin-top: 16px;">
-            Segera periksa lokasi terakhir barang tersebut.
-          </p>
-
-          <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">
-            Email ini dikirim otomatis oleh sistem Smart Lost Item Detection.
-          </p>
-        </div>
-      `
-    };
-
-    const info = await transporter.sendMail(mailOptions);
+      return {
+        success: false,
+        status: "EMAIL_GAGAL",
+        message: result.message || result.error || "Gagal mengirim email melalui Resend."
+      };
+    }
 
     return {
       success: true,
       status: "EMAIL_TERKIRIM",
-      message: "Notifikasi email berhasil dikirim.",
-      messageId: info.messageId
+      message: "Notifikasi email berhasil dikirim melalui Resend.",
+      messageId: result.id
     };
 
   } catch (error) {
-    const errorMessage = error.message || "Gagal mengirim email.";
-
-    console.error("=================================");
-    console.error("GAGAL KIRIM EMAIL");
-    console.error("Pesan error:", errorMessage);
-    console.error("=================================");
+    console.error("Gagal kirim email Resend:", error.message);
 
     return {
       success: false,
       status: "EMAIL_GAGAL",
-      message: errorMessage
+      message: error.message
     };
   }
 }
