@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <title>Smart Lost Item Detection</title>
 
@@ -76,19 +76,15 @@
       </section>
 
       <!-- KAMERA -->
-      <section class="card camera-card" id="cameraCard">
+      <section class="card camera-card">
         <div class="camera-header">
           <h2>Kamera Pemantauan</h2>
           <span id="modelStatus" class="status">Model belum dimuat</span>
         </div>
 
-        <div class="camera-box" id="cameraBox">
+        <div class="camera-box">
           <video id="video" autoplay playsinline muted></video>
           <canvas id="canvas"></canvas>
-
-          <button type="button" id="fullscreenBtn" class="fullscreen-btn">
-            ⛶ Fullscreen
-          </button>
         </div>
       </section>
 

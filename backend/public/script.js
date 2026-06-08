@@ -38,9 +38,6 @@ const missingTime = document.getElementById("missingTime");
 const notifStatus = document.getElementById("notifStatus");
 const historyList = document.getElementById("historyList");
 
-const cameraBox = document.getElementById("cameraBox");
-const fullscreenBtn = document.getElementById("fullscreenBtn");
-
 const itemLabels = {
   "cell phone": "Handphone",
   "laptop": "Laptop",
@@ -436,42 +433,6 @@ async function detectLoop() {
   animationId = requestAnimationFrame(detectLoop);
 }
 
-function enterCameraFullscreen() {
-  cameraBox.classList.add("camera-fullscreen");
-  document.body.classList.add("fullscreen-active");
-  fullscreenBtn.textContent = "✕ Keluar";
-
-  // Native fullscreen untuk Android/Chrome.
-  // Kalau browser tidak support, CSS fullscreen tetap jalan.
-  if (cameraBox.requestFullscreen && !document.fullscreenElement) {
-    cameraBox.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
-  }
-
-  setTimeout(syncCanvasSize, 250);
-}
-
-function exitCameraFullscreen() {
-  cameraBox.classList.remove("camera-fullscreen");
-  document.body.classList.remove("fullscreen-active");
-  fullscreenBtn.textContent = "⛶ Fullscreen";
-
-  if (document.fullscreenElement && document.exitFullscreen) {
-    document.exitFullscreen().catch(() => {});
-  }
-
-  setTimeout(syncCanvasSize, 250);
-}
-
-function toggleCameraFullscreen() {
-  const isFullscreen = cameraBox.classList.contains("camera-fullscreen");
-
-  if (isFullscreen) {
-    exitCameraFullscreen();
-  } else {
-    enterCameraFullscreen();
-  }
-}
-
 startBtn.addEventListener("click", async () => {
   const ownerName = ownerNameInput.value.trim();
   const ownerEmail = ownerEmailInput.value.trim();
@@ -542,10 +503,6 @@ stopBtn.addEventListener("click", () => {
   lockedBox = null;
   missingStartTime = null;
 
-  if (cameraBox && cameraBox.classList.contains("camera-fullscreen")) {
-    exitCameraFullscreen();
-  }
-
   setStatus(
     "safe",
     "Pemantauan Berhenti",
@@ -558,31 +515,12 @@ stopBtn.addEventListener("click", () => {
   addHistory("Pemantauan dihentikan.");
 });
 
-if (cameraBox && fullscreenBtn) {
-  fullscreenBtn.addEventListener("click", toggleCameraFullscreen);
+window.addEventListener("resize", () => {
+  setTimeout(syncCanvasSize, 250);
+});
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      exitCameraFullscreen();
-    }
-  });
-
-  document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement) {
-      cameraBox.classList.remove("camera-fullscreen");
-      document.body.classList.remove("fullscreen-active");
-      fullscreenBtn.textContent = "⛶ Fullscreen";
-      setTimeout(syncCanvasSize, 250);
-    }
-  });
-
-  window.addEventListener("resize", () => {
-    setTimeout(syncCanvasSize, 250);
-  });
-
-  window.addEventListener("orientationchange", () => {
-    setTimeout(syncCanvasSize, 500);
-  });
-}
+window.addEventListener("orientationchange", () => {
+  setTimeout(syncCanvasSize, 500);
+});
 
 loadModel();
