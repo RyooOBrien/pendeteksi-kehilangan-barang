@@ -11,9 +11,12 @@ let itemLocked = false;
 let firstDetectedAt = null;
 let lockedBox = null;
 
+// Stabilizer agar deteksi tidak gampang kedip/hilang sesaat
+let lastSeenInLockedAreaAt = null;
+
 const LOST_DELAY_SECONDS = 8;
-const CONFIDENCE_LIMIT = 0.45;
 const LOCK_CONFIRM_SECONDS = 2;
+const SMOOTH_MISSING_MS = 900;
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -38,19 +41,35 @@ const missingTime = document.getElementById("missingTime");
 const notifStatus = document.getElementById("notifStatus");
 const historyList = document.getElementById("historyList");
 
-const itemLabels = {
-  "cell phone": "Handphone",
-  "laptop": "Laptop",
-  "backpack": "Tas",
-  "book": "Buku"
+// Fokus barang untuk demo: Laptop, Handphone, Buku
+const TARGET_ITEMS = {
+  laptop: {
+    label: "Laptop",
+    classes: ["laptop"],
+    minScore: 0.45,
+    minAreaRatio: 0.01
+  },
+  handphone: {
+    label: "Handphone",
+    classes: ["cell phone"],
+    minScore: 0.25,
+    minAreaRatio: 0.001
+  },
 };
 
-const itemClasses = {
-  "cell phone": ["cell phone"],
-  "laptop": ["laptop"],
-  "backpack": ["backpack", "handbag"],
-  "book": ["book"]
-};
+function normalizeTargetItem(value) {
+  const target = String(value || "").toLowerCase().trim();
+
+  if (target === "laptop") return "laptop";
+  if (target === "handphone" || target === "hp" || target === "phone" || target === "cell phone") return "handphone";
+
+  return null;
+}
+
+function getTargetConfig(targetItem) {
+  const normalized = normalizeTargetItem(targetItem);
+  return normalized ? TARGET_ITEMS[normalized] : null;
+}
 
 async function loadModel() {
   try {
@@ -64,7 +83,8 @@ async function loadModel() {
 }
 
 function getItemLabel(targetItem) {
-  return itemLabels[targetItem] || targetItem;
+  const config = getTargetConfig(targetItem);
+  return config ? config.label : targetItem;
 }
 
 function setStatus(type, title, text) {
@@ -75,6 +95,7 @@ function setStatus(type, title, text) {
 
 function getCurrentTime() {
   const now = new Date();
+
   return now.toLocaleTimeString("id-ID", {
     hour: "2-digit",
     minute: "2-digit",
@@ -139,24 +160,80 @@ function stopCamera() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-function getTargetPredictions(predictions, targetItem) {
-  const allowedClasses = itemClasses[targetItem] || [targetItem];
+function getBoxArea(box) {
+  if (!box) return 0;
+  return box[2] * box[3];
+}
 
-  return predictions.filter(prediction => {
-    return allowedClasses.includes(prediction.class) && prediction.score >= CONFIDENCE_LIMIT;
-  });
+function getFrameArea() {
+  const width = canvas.width || video.videoWidth || 1;
+  const height = canvas.height || video.videoHeight || 1;
+  return width * height;
+}
+
+function getTargetPredictions(predictions, targetItem) {
+  const config = getTargetConfig(targetItem);
+
+  if (!config) return [];
+
+  const frameArea = getFrameArea();
+
+  return predictions
+    .filter(prediction => {
+      const boxArea = getBoxArea(prediction.bbox);
+      const areaRatio = boxArea / frameArea;
+
+      return (
+        config.classes.includes(prediction.class) &&
+        prediction.score >= config.minScore &&
+        areaRatio >= config.minAreaRatio
+      );
+    })
+    .sort((a, b) => b.score - a.score);
 }
 
 function getBestPrediction(predictions) {
   if (predictions.length === 0) return null;
 
+  const frameArea = getFrameArea();
+
   return predictions.reduce((best, current) => {
-    return current.score > best.score ? current : best;
+    const bestAreaRatio = getBoxArea(best.bbox) / frameArea;
+    const currentAreaRatio = getBoxArea(current.bbox) / frameArea;
+
+    const bestValue = best.score + Math.min(bestAreaRatio * 2, 0.25);
+    const currentValue = current.score + Math.min(currentAreaRatio * 2, 0.25);
+
+    return currentValue > bestValue ? current : best;
   });
 }
 
+function getIoU(boxA, boxB) {
+  if (!boxA || !boxB) return 0;
+
+  const [ax, ay, aw, ah] = boxA;
+  const [bx, by, bw, bh] = boxB;
+
+  const x1 = Math.max(ax, bx);
+  const y1 = Math.max(ay, by);
+  const x2 = Math.min(ax + aw, bx + bw);
+  const y2 = Math.min(ay + ah, by + bh);
+
+  const intersectionWidth = Math.max(0, x2 - x1);
+  const intersectionHeight = Math.max(0, y2 - y1);
+  const intersectionArea = intersectionWidth * intersectionHeight;
+
+  const areaA = aw * ah;
+  const areaB = bw * bh;
+  const unionArea = areaA + areaB - intersectionArea;
+
+  if (unionArea <= 0) return 0;
+
+  return intersectionArea / unionArea;
+}
+
 function boxMatchesLockedArea(currentBox, referenceBox) {
-  if (!referenceBox) return false;
+  if (!referenceBox || !currentBox) return false;
 
   const [rx, ry, rw, rh] = referenceBox;
   const [cx, cy, cw, ch] = currentBox;
@@ -164,24 +241,35 @@ function boxMatchesLockedArea(currentBox, referenceBox) {
   const currentCenterX = cx + cw / 2;
   const currentCenterY = cy + ch / 2;
 
-  const expandX = rw * 0.8;
-  const expandY = rh * 0.8;
+  const referenceCenterX = rx + rw / 2;
+  const referenceCenterY = ry + rh / 2;
 
-  const insideX =
-    currentCenterX >= rx - expandX &&
-    currentCenterX <= rx + rw + expandX;
+  const distanceX = Math.abs(currentCenterX - referenceCenterX);
+  const distanceY = Math.abs(currentCenterY - referenceCenterY);
 
-  const insideY =
-    currentCenterY >= ry - expandY &&
-    currentCenterY <= ry + rh + expandY;
+  const centerStillClose =
+    distanceX <= rw * 1.15 &&
+    distanceY <= rh * 1.15;
 
   const referenceArea = rw * rh;
   const currentArea = cw * ch;
   const areaRatio = currentArea / referenceArea;
 
-  const sizeStillSimilar = areaRatio >= 0.25 && areaRatio <= 4;
+  const sizeStillSimilar = areaRatio >= 0.20 && areaRatio <= 5;
 
-  return insideX && insideY && sizeStillSimilar;
+  const iou = getIoU(currentBox, referenceBox);
+  const stillOverlaps = iou >= 0.06;
+
+  return sizeStillSimilar && (centerStillClose || stillOverlaps);
+}
+
+function blendBox(oldBox, newBox, alpha = 0.05) {
+  if (!oldBox) return newBox;
+  if (!newBox) return oldBox;
+
+  return oldBox.map((value, index) => {
+    return value * (1 - alpha) + newBox[index] * alpha;
+  });
 }
 
 function drawDetections(targetPredictions, matchedPredictions, targetItem) {
@@ -190,7 +278,6 @@ function drawDetections(targetPredictions, matchedPredictions, targetItem) {
 
   const targetLabel = getItemLabel(targetItem);
 
-  // Gambar area barang yang sudah dikunci
   if (lockedBox) {
     const [x, y, width, height] = lockedBox;
 
@@ -227,12 +314,13 @@ function drawDetections(targetPredictions, matchedPredictions, targetItem) {
 }
 
 async function sendLostItemNotification() {
-  const targetItem = targetItemInput.value;
+  const targetItem = normalizeTargetItem(targetItemInput.value);
+  const targetLabel = getItemLabel(targetItem);
 
   const data = {
     ownerName: ownerNameInput.value.trim(),
     ownerEmail: ownerEmailInput.value.trim(),
-    itemName: getItemLabel(targetItem),
+    itemName: targetLabel,
     itemClass: targetItem,
     location: locationInput.value.trim(),
     time: getCurrentTime()
@@ -294,8 +382,19 @@ async function detectLoop() {
 
   syncCanvasSize();
 
-  const targetItem = targetItemInput.value;
+  const targetItem = normalizeTargetItem(targetItemInput.value);
   const targetLabel = getItemLabel(targetItem);
+
+  if (!targetItem) {
+    setStatus(
+      "danger",
+      "Barang Tidak Didukung",
+      "Barang yang dipilih tidak didukung. Gunakan Laptop atau Handphone."
+    );
+    isMonitoring = false;
+    stopCamera();
+    return;
+  }
 
   const predictions = await model.detect(video);
 
@@ -330,6 +429,7 @@ async function detectLoop() {
         itemLocked = true;
         lockedBox = bestTarget.bbox;
         firstDetectedAt = null;
+        lastSeenInLockedAreaAt = Date.now();
 
         detectInfo.textContent = "Barang tersimpan";
         missingTime.textContent = "0 detik";
@@ -368,9 +468,17 @@ async function detectLoop() {
   drawDetections(targetPredictions, matchedPredictions, targetItem);
 
   const targetDetectedInLockedArea = matchedPredictions.length > 0;
-  const targetDetectedButWrongArea = targetPredictions.length > 0 && matchedPredictions.length === 0;
+  const targetDetectedButWrongArea =
+    targetPredictions.length > 0 && matchedPredictions.length === 0;
 
   if (targetDetectedInLockedArea) {
+    const bestMatch = getBestPrediction(matchedPredictions);
+
+    if (bestMatch) {
+      lockedBox = blendBox(lockedBox, bestMatch.bbox, 0.04);
+    }
+
+    lastSeenInLockedAreaAt = Date.now();
     missingStartTime = null;
 
     detectInfo.textContent = `Terdeteksi di area awal (${matchedPredictions.length})`;
@@ -387,6 +495,24 @@ async function detectLoop() {
     );
 
   } else {
+    const stillInSmoothTime =
+      lastSeenInLockedAreaAt &&
+      Date.now() - lastSeenInLockedAreaAt <= SMOOTH_MISSING_MS;
+
+    if (stillInSmoothTime) {
+      detectInfo.textContent = "Menstabilkan deteksi...";
+      missingTime.textContent = "0 detik";
+
+      setStatus(
+        "safe",
+        "Barang Aman",
+        `${targetLabel} masih dianggap aman. Sistem sedang menstabilkan deteksi kamera.`
+      );
+
+      animationId = requestAnimationFrame(detectLoop);
+      return;
+    }
+
     if (!missingStartTime) {
       missingStartTime = Date.now();
     }
@@ -437,7 +563,7 @@ startBtn.addEventListener("click", async () => {
   const ownerName = ownerNameInput.value.trim();
   const ownerEmail = ownerEmailInput.value.trim();
   const location = locationInput.value.trim();
-  const targetItem = targetItemInput.value;
+  const targetItem = normalizeTargetItem(targetItemInput.value);
   const targetLabel = getItemLabel(targetItem);
 
   if (!ownerName || !ownerEmail || !location) {
@@ -447,6 +573,11 @@ startBtn.addEventListener("click", async () => {
 
   if (!ownerEmail.includes("@")) {
     alert("Format email belum benar.");
+    return;
+  }
+
+  if (!targetItem) {
+    alert("Barang yang dipilih tidak didukung. Gunakan Laptop, Handphone, atau Buku.");
     return;
   }
 
@@ -463,6 +594,7 @@ startBtn.addEventListener("click", async () => {
     itemLocked = false;
     firstDetectedAt = null;
     lockedBox = null;
+    lastSeenInLockedAreaAt = null;
 
     itemInfo.textContent = targetLabel;
     detectInfo.textContent = "Mencari target...";
@@ -501,6 +633,7 @@ stopBtn.addEventListener("click", () => {
   itemLocked = false;
   firstDetectedAt = null;
   lockedBox = null;
+  lastSeenInLockedAreaAt = null;
   missingStartTime = null;
 
   setStatus(
