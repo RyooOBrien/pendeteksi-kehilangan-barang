@@ -491,3 +491,29 @@ stopBtn.addEventListener("click", () => {
 });
 
 loadModel();
+const cameraBox = document.getElementById("cameraBox");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
+
+if (cameraBox && fullscreenBtn) {
+  fullscreenBtn.addEventListener("click", () => {
+    const isFullscreen = cameraBox.classList.contains("camera-fullscreen");
+
+    if (isFullscreen) {
+      cameraBox.classList.remove("camera-fullscreen");
+      document.body.classList.remove("fullscreen-active");
+      fullscreenBtn.textContent = "⛶ Fullscreen";
+    } else {
+      cameraBox.classList.add("camera-fullscreen");
+      document.body.classList.add("fullscreen-active");
+      fullscreenBtn.textContent = "✕ Keluar";
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      cameraBox.classList.remove("camera-fullscreen");
+      document.body.classList.remove("fullscreen-active");
+      fullscreenBtn.textContent = "⛶ Fullscreen";
+    }
+  });
+}
