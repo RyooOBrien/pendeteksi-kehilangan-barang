@@ -5,8 +5,16 @@
   font-family: "Inter", "Segoe UI", Arial, sans-serif;
 }
 
+html {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
 body {
+  width: 100%;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.35), transparent 35%),
     radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.25), transparent 35%),
@@ -197,17 +205,87 @@ body {
   aspect-ratio: 16 / 10;
 }
 
-video,
-canvas {
+.camera-box video,
+.camera-box canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
 }
 
-canvas {
+.camera-box video {
+  object-fit: cover;
+  z-index: 1;
+}
+
+.camera-box canvas {
   z-index: 2;
+  pointer-events: none;
+}
+
+/* FULLSCREEN CAMERA */
+.fullscreen-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+}
+
+.fullscreen-btn:hover {
+  background: rgba(15, 23, 42, 1);
+}
+
+.camera-box.camera-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  aspect-ratio: auto;
+  background: #000000;
+}
+
+.camera-box.camera-fullscreen video,
+.camera-box.camera-fullscreen canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Di fullscreen HP dibuat contain supaya tidak gepeng/zoom aneh */
+.camera-box.camera-fullscreen video {
+  object-fit: contain;
+  background: #000000;
+}
+
+.camera-box.camera-fullscreen canvas {
+  object-fit: contain;
+}
+
+.camera-box.camera-fullscreen .fullscreen-btn {
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  background: rgba(220, 38, 38, 0.92);
+}
+
+body.fullscreen-active {
+  overflow: hidden;
+  touch-action: none;
 }
 
 /* STATUS */
@@ -325,79 +403,42 @@ canvas {
   .camera-box {
     aspect-ratio: 4 / 3;
   }
-/* FULLSCREEN CAMERA */
-.camera-box {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-radius: 22px;
-  background: #020617;
 }
 
-.camera-box video,
-.camera-box canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
+@media (max-width: 520px) {
+  .app {
+    padding: 12px;
+  }
 
-.camera-box video {
-  object-fit: cover;
-  z-index: 1;
-}
+  .hero {
+    padding: 22px;
+    margin-bottom: 18px;
+  }
 
-.camera-box canvas {
-  z-index: 2;
-  pointer-events: none;
-}
+  .card {
+    padding: 18px;
+    border-radius: 22px;
+  }
 
-.fullscreen-btn {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 10;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.88);
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
-}
+  .camera-box {
+    border-radius: 18px;
+  }
 
-.fullscreen-btn:hover {
-  background: rgba(15, 23, 42, 1);
-}
+  .fullscreen-btn {
+    right: 12px;
+    bottom: 12px;
+    padding: 9px 13px;
+    font-size: 12px;
+  }
 
-.camera-box.camera-fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  width: 100vw;
-  height: 100vh;
-  border-radius: 0;
-  aspect-ratio: auto;
-}
+  .camera-box.camera-fullscreen {
+    border-radius: 0;
+  }
 
-.camera-box.camera-fullscreen video,
-.camera-box.camera-fullscreen canvas {
-  width: 100vw;
-  height: 100vh;
-  object-fit: cover;
-}
-
-.camera-box.camera-fullscreen .fullscreen-btn {
-  right: 20px;
-  bottom: 24px;
-  background: rgba(220, 38, 38, 0.92);
-}
-
-body.fullscreen-active {
-  overflow: hidden;
-}
+  .camera-box.camera-fullscreen .fullscreen-btn {
+    right: 14px;
+    bottom: 18px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
 }

@@ -38,17 +38,20 @@ const missingTime = document.getElementById("missingTime");
 const notifStatus = document.getElementById("notifStatus");
 const historyList = document.getElementById("historyList");
 
+const cameraBox = document.getElementById("cameraBox");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
+
 const itemLabels = {
   "cell phone": "Handphone",
   "laptop": "Laptop",
-  "bag": "Tas",
+  "backpack": "Tas",
   "book": "Buku"
 };
 
 const itemClasses = {
   "cell phone": ["cell phone"],
   "laptop": ["laptop"],
-  "bag": ["backpack", "handbag"],
+  "backpack": ["backpack", "handbag"],
   "book": ["book"]
 };
 
@@ -61,6 +64,10 @@ async function loadModel() {
     console.error(error);
     modelStatus.textContent = "Model gagal dimuat";
   }
+}
+
+function getItemLabel(targetItem) {
+  return itemLabels[targetItem] || targetItem;
 }
 
 function setStatus(type, title, text) {
@@ -91,6 +98,15 @@ function addHistory(message) {
   historyList.prepend(li);
 }
 
+function syncCanvasSize() {
+  if (!video.videoWidth || !video.videoHeight) return;
+
+  if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  }
+}
+
 async function startCamera() {
   stream = await navigator.mediaDevices.getUserMedia({
     video: {
@@ -104,12 +120,9 @@ async function startCamera() {
   video.srcObject = stream;
 
   return new Promise((resolve) => {
-    video.onloadedmetadata = () => {
-      video.play();
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
+    video.onloadedmetadata = async () => {
+      await video.play();
+      syncCanvasSize();
       resolve();
     };
   });
@@ -175,7 +188,10 @@ function boxMatchesLockedArea(currentBox, referenceBox) {
 }
 
 function drawDetections(targetPredictions, matchedPredictions, targetItem) {
+  syncCanvasSize();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const targetLabel = getItemLabel(targetItem);
 
   // Gambar area barang yang sudah dikunci
   if (lockedBox) {
@@ -206,19 +222,21 @@ function drawDetections(targetPredictions, matchedPredictions, targetItem) {
     ctx.font = "16px Arial";
 
     const label = isWrongArea
-      ? `${itemLabels[targetItem]} di luar area`
-      : `${itemLabels[targetItem]} ${(prediction.score * 100).toFixed(0)}%`;
+      ? `${targetLabel} di luar area`
+      : `${targetLabel} ${(prediction.score * 100).toFixed(0)}%`;
 
     ctx.fillText(label, x, y > 20 ? y - 8 : y + 20);
   });
 }
 
 async function sendLostItemNotification() {
+  const targetItem = targetItemInput.value;
+
   const data = {
     ownerName: ownerNameInput.value.trim(),
     ownerEmail: ownerEmailInput.value.trim(),
-    itemName: itemLabels[targetItemInput.value],
-    itemClass: targetItemInput.value,
+    itemName: getItemLabel(targetItem),
+    itemClass: targetItem,
     location: locationInput.value.trim(),
     time: getCurrentTime()
   };
@@ -272,7 +290,16 @@ async function sendLostItemNotification() {
 async function detectLoop() {
   if (!isMonitoring || !model) return;
 
+  if (video.readyState < 2) {
+    animationId = requestAnimationFrame(detectLoop);
+    return;
+  }
+
+  syncCanvasSize();
+
   const targetItem = targetItemInput.value;
+  const targetLabel = getItemLabel(targetItem);
+
   const predictions = await model.detect(video);
 
   const targetPredictions = getTargetPredictions(predictions, targetItem);
@@ -299,7 +326,7 @@ async function detectLoop() {
       setStatus(
         "warning",
         "Menyimpan Barang Target",
-        `${itemLabels[targetItem]} terdeteksi. Sistem sedang menyimpan posisi awal selama ${lockSeconds}/${LOCK_CONFIRM_SECONDS} detik.`
+        `${targetLabel} terdeteksi. Sistem sedang menyimpan posisi awal selama ${lockSeconds}/${LOCK_CONFIRM_SECONDS} detik.`
       );
 
       if (lockSeconds >= LOCK_CONFIRM_SECONDS) {
@@ -313,11 +340,11 @@ async function detectLoop() {
         setStatus(
           "safe",
           "Barang Tersimpan",
-          `${itemLabels[targetItem]} berhasil disimpan berdasarkan posisi awal. Pemantauan kehilangan sekarang aktif.`
+          `${targetLabel} berhasil disimpan berdasarkan posisi awal. Pemantauan kehilangan sekarang aktif.`
         );
 
         addHistory(
-          `${itemLabels[targetItem]} berhasil disimpan berdasarkan posisi awal. Sistem mulai memantau kehilangan.`
+          `${targetLabel} berhasil disimpan berdasarkan posisi awal. Sistem mulai memantau kehilangan.`
         );
       }
 
@@ -328,7 +355,7 @@ async function detectLoop() {
       setStatus(
         "warning",
         "Mencari Barang Target",
-        `Arahkan kamera ke ${itemLabels[targetItem]}. Sistem belum menghitung kehilangan sebelum barang target tersimpan.`
+        `Arahkan kamera ke ${targetLabel}. Sistem belum menghitung kehilangan sebelum barang target tersimpan.`
       );
     }
 
@@ -359,7 +386,7 @@ async function detectLoop() {
     setStatus(
       "safe",
       "Barang Aman",
-      `${itemLabels[targetItem]} masih terdeteksi di posisi awal pemantauan.`
+      `${targetLabel} masih terdeteksi di posisi awal pemantauan.`
     );
 
   } else {
@@ -377,7 +404,7 @@ async function detectLoop() {
         setStatus(
           "warning",
           "Barang Tidak Sesuai Posisi Awal",
-          `${itemLabels[targetItem]} terdeteksi, tetapi bukan di area awal yang tersimpan. Sistem tetap menghitung kemungkinan kehilangan.`
+          `${targetLabel} terdeteksi, tetapi bukan di area awal yang tersimpan. Sistem tetap menghitung kemungkinan kehilangan.`
         );
       }
     } else {
@@ -387,7 +414,7 @@ async function detectLoop() {
         setStatus(
           "warning",
           "Barang Tidak Terlihat",
-          `${itemLabels[targetItem]} belum terlihat selama ${elapsedSeconds} detik dari area awal. Sistem sedang memastikan kondisi barang.`
+          `${targetLabel} belum terlihat selama ${elapsedSeconds} detik dari area awal. Sistem sedang memastikan kondisi barang.`
         );
       }
     }
@@ -396,7 +423,7 @@ async function detectLoop() {
       setStatus(
         "danger",
         "Barang Terdeteksi Hilang",
-        `${itemLabels[targetItem]} tidak terlihat di area awal lebih dari ${LOST_DELAY_SECONDS} detik. Sistem mengirim peringatan email ke pemilik barang.`
+        `${targetLabel} tidak terlihat di area awal lebih dari ${LOST_DELAY_SECONDS} detik. Sistem mengirim peringatan email ke pemilik barang.`
       );
 
       if (!alertSent) {
@@ -409,11 +436,48 @@ async function detectLoop() {
   animationId = requestAnimationFrame(detectLoop);
 }
 
+function enterCameraFullscreen() {
+  cameraBox.classList.add("camera-fullscreen");
+  document.body.classList.add("fullscreen-active");
+  fullscreenBtn.textContent = "✕ Keluar";
+
+  // Native fullscreen untuk Android/Chrome.
+  // Kalau browser tidak support, CSS fullscreen tetap jalan.
+  if (cameraBox.requestFullscreen && !document.fullscreenElement) {
+    cameraBox.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  }
+
+  setTimeout(syncCanvasSize, 250);
+}
+
+function exitCameraFullscreen() {
+  cameraBox.classList.remove("camera-fullscreen");
+  document.body.classList.remove("fullscreen-active");
+  fullscreenBtn.textContent = "⛶ Fullscreen";
+
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+
+  setTimeout(syncCanvasSize, 250);
+}
+
+function toggleCameraFullscreen() {
+  const isFullscreen = cameraBox.classList.contains("camera-fullscreen");
+
+  if (isFullscreen) {
+    exitCameraFullscreen();
+  } else {
+    enterCameraFullscreen();
+  }
+}
+
 startBtn.addEventListener("click", async () => {
   const ownerName = ownerNameInput.value.trim();
   const ownerEmail = ownerEmailInput.value.trim();
   const location = locationInput.value.trim();
   const targetItem = targetItemInput.value;
+  const targetLabel = getItemLabel(targetItem);
 
   if (!ownerName || !ownerEmail || !location) {
     alert("Isi nama pemilik, email pemilik, dan lokasi pemantauan dulu.");
@@ -439,7 +503,7 @@ startBtn.addEventListener("click", async () => {
     firstDetectedAt = null;
     lockedBox = null;
 
-    itemInfo.textContent = itemLabels[targetItem];
+    itemInfo.textContent = targetLabel;
     detectInfo.textContent = "Mencari target...";
     missingTime.textContent = "-";
     notifStatus.textContent = "Belum dikirim";
@@ -447,13 +511,13 @@ startBtn.addEventListener("click", async () => {
     setStatus(
       "warning",
       "Mencari Barang Target",
-      `Arahkan kamera ke ${itemLabels[targetItem]}. Sistem akan menyimpan posisi awal barang terlebih dahulu.`
+      `Arahkan kamera ke ${targetLabel}. Sistem akan menyimpan posisi awal barang terlebih dahulu.`
     );
 
     await startCamera();
 
     addHistory(
-      `Pemantauan dimulai untuk ${itemLabels[targetItem]} milik ${ownerName}. Sistem akan menyimpan posisi awal barang.`
+      `Pemantauan dimulai untuk ${targetLabel} milik ${ownerName}. Sistem akan menyimpan posisi awal barang.`
     );
 
     detectLoop();
@@ -478,6 +542,10 @@ stopBtn.addEventListener("click", () => {
   lockedBox = null;
   missingStartTime = null;
 
+  if (cameraBox && cameraBox.classList.contains("camera-fullscreen")) {
+    exitCameraFullscreen();
+  }
+
   setStatus(
     "safe",
     "Pemantauan Berhenti",
@@ -490,30 +558,31 @@ stopBtn.addEventListener("click", () => {
   addHistory("Pemantauan dihentikan.");
 });
 
-loadModel();
-const cameraBox = document.getElementById("cameraBox");
-const fullscreenBtn = document.getElementById("fullscreenBtn");
-
 if (cameraBox && fullscreenBtn) {
-  fullscreenBtn.addEventListener("click", () => {
-    const isFullscreen = cameraBox.classList.contains("camera-fullscreen");
-
-    if (isFullscreen) {
-      cameraBox.classList.remove("camera-fullscreen");
-      document.body.classList.remove("fullscreen-active");
-      fullscreenBtn.textContent = "⛶ Fullscreen";
-    } else {
-      cameraBox.classList.add("camera-fullscreen");
-      document.body.classList.add("fullscreen-active");
-      fullscreenBtn.textContent = "✕ Keluar";
-    }
-  });
+  fullscreenBtn.addEventListener("click", toggleCameraFullscreen);
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      exitCameraFullscreen();
+    }
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement) {
       cameraBox.classList.remove("camera-fullscreen");
       document.body.classList.remove("fullscreen-active");
       fullscreenBtn.textContent = "⛶ Fullscreen";
+      setTimeout(syncCanvasSize, 250);
     }
   });
+
+  window.addEventListener("resize", () => {
+    setTimeout(syncCanvasSize, 250);
+  });
+
+  window.addEventListener("orientationchange", () => {
+    setTimeout(syncCanvasSize, 500);
+  });
 }
+
+loadModel();

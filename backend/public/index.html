@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
   <title>Smart Lost Item Detection</title>
 
@@ -67,7 +67,7 @@
           <input 
             type="text" 
             id="location" 
-            placeholder="Contoh: Meja " 
+            placeholder="Contoh: Meja" 
           />
         </div>
 
@@ -76,21 +76,21 @@
       </section>
 
       <!-- KAMERA -->
-<section class="card camera-card">
-  <div class="camera-header">
-    <h2>Kamera Pemantauan</h2>
-    <span id="modelStatus" class="status">Model belum dimuat</span>
-  </div>
+      <section class="card camera-card" id="cameraCard">
+        <div class="camera-header">
+          <h2>Kamera Pemantauan</h2>
+          <span id="modelStatus" class="status">Model belum dimuat</span>
+        </div>
 
-  <div class="camera-box" id="cameraBox">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas"></canvas>
+        <div class="camera-box" id="cameraBox">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="canvas"></canvas>
 
-    <button type="button" id="fullscreenBtn" class="fullscreen-btn">
-      ⛶ Fullscreen
-    </button>
-  </div>
-</section>
+          <button type="button" id="fullscreenBtn" class="fullscreen-btn">
+            ⛶ Fullscreen
+          </button>
+        </div>
+      </section>
 
       <!-- STATUS -->
       <section class="card status-card">
