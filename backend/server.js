@@ -91,7 +91,7 @@ async function sendEmailNotification(report) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        from: "Smart Lost Item Detection <onboarding@resend.dev>",
+        from: 'Smart Lost Item Detection <alert@smartlostitem.my.id>',
         to: [report.ownerEmail],
         subject: `Peringatan Barang Hilang - ${report.itemName}`,
         html: emailHtml
