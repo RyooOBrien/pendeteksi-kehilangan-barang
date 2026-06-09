@@ -41,19 +41,23 @@ const missingTime = document.getElementById("missingTime");
 const notifStatus = document.getElementById("notifStatus");
 const historyList = document.getElementById("historyList");
 
-// Fokus barang untuk demo: Laptop, Handphone, Buku
+// Fokus barang untuk demo: Laptop, Handphone
 const TARGET_ITEMS = {
   laptop: {
     label: "Laptop",
     classes: ["laptop"],
-    minScore: 0.45,
-    minAreaRatio: 0.01
+    minScore: 0.50,
+    minAreaRatio: 0.01,
+    maxAreaRatio: 0.70,
+    shape: "laptop"
   },
   handphone: {
     label: "Handphone",
     classes: ["cell phone"],
-    minScore: 0.25,
-    minAreaRatio: 0.001
+    minScore: 0.35,
+    minAreaRatio: 0.0015,
+    maxAreaRatio: 0.35,
+    shape: "handphone"
   },
 };
 
@@ -170,6 +174,27 @@ function getFrameArea() {
   const height = canvas.height || video.videoHeight || 1;
   return width * height;
 }
+function isValidObjectShape(box, shape) {
+  if (!box) return false;
+
+  const [, , width, height] = box;
+
+  if (width <= 0 || height <= 0) return false;
+
+  const aspectRatio = width / height;
+
+  if (shape === "phone") {
+    // Mendukung HP iPhone/Android dalam posisi portrait, landscape, atau agak miring
+    return aspectRatio >= 0.20 && aspectRatio <= 4.50;
+  }
+
+  if (shape === "laptop") {
+    // Laptop biasanya lebih lebar, tapi tetap diberi toleransi jika kamera miring
+    return aspectRatio >= 0.80 && aspectRatio <= 4.20;
+  }
+
+  return true;
+}
 
 function getTargetPredictions(predictions, targetItem) {
   const config = getTargetConfig(targetItem);
@@ -186,7 +211,9 @@ function getTargetPredictions(predictions, targetItem) {
       return (
         config.classes.includes(prediction.class) &&
         prediction.score >= config.minScore &&
-        areaRatio >= config.minAreaRatio
+        areaRatio >= config.minAreaRatio &&
+        areaRatio <= config.maxAreaRatio &&
+        isValidObjectShape(prediction.bbox, config.shape)
       );
     })
     .sort((a, b) => b.score - a.score);
@@ -577,7 +604,7 @@ startBtn.addEventListener("click", async () => {
   }
 
   if (!targetItem) {
-    alert("Barang yang dipilih tidak didukung. Gunakan Laptop, Handphone, atau Buku.");
+    alert("Barang yang dipilih tidak didukung. Gunakan Laptop, Handphone.");
     return;
   }
 
